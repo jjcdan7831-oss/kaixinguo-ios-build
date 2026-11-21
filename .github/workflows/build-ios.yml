@@ -1,0 +1,100 @@
+name: Build Kaixinguo iOS from the official source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kaixinguo-ios-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      SOURCE_COMMIT: 3788c09358374cc3c53bd04d70c335153b36e50c
+    steps:
+      - name: Download the pinned official source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v0.7.0 https://github.com/kadaliao/kaixinguo-ios.git source
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
+          xcodebuild -version
+          command -v xcodegen >/dev/null || brew install xcodegen
+          mkdir -p output
+
+      - name: Generate the Xcode project
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate
+
+      - name: Run the existing core tests
+        working-directory: source/KaixinguoKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test 2>&1 | tee ../../output/core-tests.log
+
+      - name: Build the iPhone and iPad app without signing
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project Kaixinguo.xcodeproj \
+            -scheme Kaixinguo \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/kaixinguo-device" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            2>&1 | tee ../output/device-build.log
+
+      - name: Package and inspect the unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/package/Payload"
+          ditto "$RUNNER_TEMP/kaixinguo-device/Build/Products/Release-iphoneos/Kaixinguo.app" \
+            "$RUNNER_TEMP/package/Payload/Kaixinguo.app"
+          cd "$RUNNER_TEMP/package"
+          ditto -c -k --sequesterRsrc --keepParent Payload \
+            "$GITHUB_WORKSPACE/output/Kaixinguo-0.7.0-unsigned.ipa"
+          cd "$GITHUB_WORKSPACE/output"
+          shasum -a 256 Kaixinguo-0.7.0-unsigned.ipa > SHA256SUMS
+          python3 - <<'PY'
+          import json, plistlib, zipfile
+          with zipfile.ZipFile('Kaixinguo-0.7.0-unsigned.ipa') as z:
+              assert z.testzip() is None
+              p = plistlib.loads(z.read('Payload/Kaixinguo.app/Info.plist'))
+              assert p['CFBundleIdentifier'] == 'com.kadaliao.kaixinguo'
+              assert p['CFBundleShortVersionString'] == '0.7.0'
+              assert p.get('UIDeviceFamily') == [1, 2]
+              assert not p.get('UIRequiresFullScreen', False)
+              assert p.get('DTSDKName') == 'iphoneos27.1'
+              assert not any('/Watch/' in n for n in z.namelist())
+              keys = ['CFBundleIdentifier', 'CFBundleShortVersionString',
+                      'CFBundleVersion', 'MinimumOSVersion', 'DTSDKName',
+                      'UIDeviceFamily', 'UIRequiresFullScreen']
+              metadata = {k: p.get(k) for k in keys}
+              metadata['source_commit'] = '3788c09358374cc3c53bd04d70c335153b36e50c'
+              metadata['signed'] = False
+              with open('build-metadata.json', 'w') as f:
+                  json.dump(metadata, f, indent=2)
+              print(json.dumps(metadata, indent=2))
+          PY
+
+      - name: Save the package and build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Kaixinguo-0.7.0-iOS-unsigned
+          path: output/
+          retention-days: 1
+          if-no-files-found: error
