@@ -1,0 +1,117 @@
+name: Package Kaixinguo fullscreen controls
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kaixinguo-fullscreen-package
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      SOURCE_COMMIT: 3788c09358374cc3c53bd04d70c335153b36e50c
+    steps:
+      - name: Download the pinned official source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v0.7.0 https://github.com/kadaliao/kaixinguo-ios.git source
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
+          xcodebuild -version
+          command -v xcodegen >/dev/null || brew install xcodegen
+          mkdir -p output
+
+      - name: Apply the isolated fullscreen patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, zlib
+          from pathlib import Path
+          data = zlib.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(data).hexdigest() == 'e5ae2cda628dafe706a74abc05e1cfa95143b2d8cdc92eec3c642a036fa5945b'
+          Path('output/fullscreen.patch').write_bytes(data)
+          PY
+          git -C source apply --check ../output/fullscreen.patch
+          git -C source apply ../output/fullscreen.patch
+
+      - name: Generate the Xcode project
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate
+
+      - name: Run the existing core tests
+        working-directory: source/KaixinguoKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test 2>&1 | tee ../../output/core-tests.log
+
+      - name: Build the iPhone and iPad app without signing
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project Kaixinguo.xcodeproj \
+            -scheme Kaixinguo \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/kaixinguo-device" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            2>&1 | tee ../output/device-build.log
+
+      - name: Package and inspect the unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/package/Payload"
+          ditto "$RUNNER_TEMP/kaixinguo-device/Build/Products/Release-iphoneos/Kaixinguo.app" \
+            "$RUNNER_TEMP/package/Payload/Kaixinguo.app"
+          cd "$RUNNER_TEMP/package"
+          ditto -c -k --sequesterRsrc --keepParent Payload \
+            "$GITHUB_WORKSPACE/output/Kaixinguo-0.7.0-fullscreen-build13-unsigned.ipa"
+          cd "$GITHUB_WORKSPACE/output"
+          shasum -a 256 Kaixinguo-0.7.0-fullscreen-build13-unsigned.ipa > SHA256SUMS
+          python3 - <<'PY'
+          import json, plistlib, zipfile
+          with zipfile.ZipFile('Kaixinguo-0.7.0-fullscreen-build13-unsigned.ipa') as z:
+              assert z.testzip() is None
+              p = plistlib.loads(z.read('Payload/Kaixinguo.app/Info.plist'))
+              assert p['CFBundleIdentifier'] == 'com.kadaliao.kaixinguo'
+              assert p['CFBundleShortVersionString'] == '0.7.0'
+              assert p.get('UIDeviceFamily') == [1, 2]
+              assert not p.get('UIRequiresFullScreen', False)
+              assert p.get('DTSDKName') == 'iphoneos27.1'
+              assert p['CFBundleVersion'] == '13'
+              assert not any('/Watch/' in n for n in z.namelist())
+              keys = ['CFBundleIdentifier', 'CFBundleShortVersionString',
+                      'CFBundleVersion', 'MinimumOSVersion', 'DTSDKName',
+                      'UIDeviceFamily', 'UIRequiresFullScreen']
+              metadata = {k: p.get(k) for k in keys}
+              metadata['source_commit'] = '3788c09358374cc3c53bd04d70c335153b36e50c'
+              metadata['signed'] = False
+              metadata['local_patch_sha256'] = 'e5ae2cda628dafe706a74abc05e1cfa95143b2d8cdc92eec3c642a036fa5945b'
+              metadata['local_variant'] = 'fullscreen-controls-build13'
+              with open('build-metadata.json', 'w') as f:
+                  json.dump(metadata, f, indent=2)
+              print(json.dumps(metadata, indent=2))
+          PY
+
+      - name: Save the package and build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Kaixinguo-0.7.0-fullscreen-build13-unsigned
+          path: output/
+          retention-days: 1
+          if-no-files-found: error
